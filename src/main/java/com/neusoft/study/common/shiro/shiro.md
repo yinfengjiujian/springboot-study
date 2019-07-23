@@ -1,0 +1,15 @@
+#1、Shiro的关注点
+1. SecurityManager：可以理解成控制中心，所有请求最终基本上都通过它来代理转发，
+一般我们程序中不需要直接跟他打交道。
+2. Subject：请求主体。比如登录用户，比如一个被授权的app。
+在程序中任何地方都可以通过SecurityUtils.getSubject()获取到当前的subject。
+subject中可以获取到Principal，这个是subject的标识，比如登陆用户的用户名或者id等，
+shiro不对值做限制。但是在登录和授权过程中，程序需要通过principal来识别唯一的用户。
+3. Realm：这个实在不知道怎么翻译合适。通俗一点理解就是realm可以访问安全相关数据，
+提供统一的数据封装来给上层做数据校验。shiro的建议是每种数据源定义一个realm，
+比如用户数据存在数据库可以使用JdbcRealm；存在属性配置文件可以使用PropertiesRealm。
+一般我们使用shiro都使用自定义的realm。
+当有多个realm存在的时候，shiro在做用户校验的时候会按照定义的策略来决定认证是否通过，
+shiro提供的可选策略有一个成功或者所有都成功等。
+一个realm对应了一个CredentialsMatcher，用来做用户提交认证信息和realm获取得用户信息做比对，
+shiro已经提供了常用的比如用户密码和存储的Hash后的密码的对比。
