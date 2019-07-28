@@ -1,11 +1,14 @@
 package com.neusoft.study.common.shiro.filters;
 
+import com.alibaba.fastjson.JSONObject;
+import com.neusoft.study.common.exception.BusinessException;
+import com.neusoft.study.common.response.ResponseCodeEnum;
+import com.neusoft.study.common.response.ResponseResultUtil;
 import com.neusoft.study.common.shiro.JWTToken;
 import com.neusoft.study.common.shiro.utils.JwtUtils;
-import com.neusoft.study.entity.user.UserDto;
-import com.neusoft.study.service.user.UserService;
+import com.neusoft.study.user.entity.UserInfo;
+import com.neusoft.study.user.service.impl.UserJwtServiceImpl;
 import lombok.extern.slf4j.Slf4j;
-
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.HttpStatus;
@@ -14,13 +17,13 @@ import org.apache.shiro.authc.AuthenticationToken;
 import org.apache.shiro.subject.Subject;
 import org.apache.shiro.web.filter.authc.AuthenticatingFilter;
 import org.apache.shiro.web.util.WebUtils;
-
 import org.springframework.web.bind.annotation.RequestMethod;
 
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.PrintWriter;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Date;
@@ -38,14 +41,15 @@ public class JwtAuthFilter extends AuthenticatingFilter {
 
     private static final int tokenRefreshInterval = 300;
 
-    private UserService userService;
+    private UserJwtServiceImpl userJwtService;
 
     /**
      * 设置登录的地址为：/login
-     * @param userService
+     *
+     * @param
      */
-    public JwtAuthFilter(UserService userService) {
-        this.userService = userService;
+    public JwtAuthFilter(UserJwtServiceImpl userJwtService) {
+        this.userJwtService = userJwtService;
         this.setLoginUrl("/login");
     }
 
@@ -103,8 +107,13 @@ public class JwtAuthFilter extends AuthenticatingFilter {
             allowed = executeLogin(request, response);
         } catch (IllegalStateException e) { //not found any token
             log.error("Not found any token");
+            responseError(request,response,ResponseCodeEnum.NOT_FOUND_TOKEN);
+        } catch (BusinessException e) {
+            log.error(e.getMessage());
+            responseError(request,response,e);
         } catch (Exception e) {
             log.error("Error occurs when login", e);
+            responseError(request,response,ResponseCodeEnum.FAILD_ACTION);
         }
 
         /**关于permissive
@@ -127,9 +136,17 @@ public class JwtAuthFilter extends AuthenticatingFilter {
     protected AuthenticationToken createToken(ServletRequest servletRequest, ServletResponse servletResponse) {
         //从请求的head获取token字符串
         String jwtToken = getAuthzHeader(servletRequest);
-        //拿到的token不为空，且token没有过期
-        if (StringUtils.isNotBlank(jwtToken) && !JwtUtils.isTokenExpired(jwtToken)) {
-            return new JWTToken(jwtToken);
+        try {
+            //拿到的token不为空，且token没有过期
+            if (StringUtils.isNotBlank(jwtToken) && !JwtUtils.isTokenExpired(jwtToken)) {
+                return new JWTToken(jwtToken);
+            }
+        } catch (Exception e) {
+            throw  new BusinessException(ResponseCodeEnum.TOKEN_ERROR);
+        }
+        //token过期，那么抛出业务异常
+        if (StringUtils.isNotBlank(jwtToken) && JwtUtils.isTokenExpired(jwtToken)){
+            throw  new BusinessException(ResponseCodeEnum.TOKEN_EXPIRED);
         }
         return null;
     }
@@ -144,11 +161,12 @@ public class JwtAuthFilter extends AuthenticatingFilter {
         httpResponse.setContentType("application/json;charset=UTF-8");
         httpResponse.setStatus(HttpStatus.SC_NON_AUTHORITATIVE_INFORMATION);
         fillCorsHeader(WebUtils.toHttp(servletRequest), httpResponse);
+        responseError(servletRequest,servletResponse,ResponseCodeEnum.TOKEN_ERROR);
         return false;
     }
 
     /**
-     *  如果Shiro Login认证成功，会进入该方法，等同于用户名密码登录成功，我们这里还判断了是否要刷新Token
+     * 如果Shiro Login认证成功，会进入该方法，等同于用户名密码登录成功，我们这里还判断了是否要刷新Token
      */
     @Override
     protected boolean onLoginSuccess(AuthenticationToken token, Subject subject, ServletRequest request, ServletResponse response) throws Exception {
@@ -156,10 +174,10 @@ public class JwtAuthFilter extends AuthenticatingFilter {
         String newToken = null;
         if (token instanceof JWTToken) {
             JWTToken jwtToken = (JWTToken) token;
-            UserDto user = (UserDto) subject.getPrincipal();
+            UserInfo userInfo = (UserInfo) subject.getPrincipal();
             boolean shouldRefresh = shouldTokenRefresh(JwtUtils.getIssuedAt(jwtToken.getToken()));
             if (shouldRefresh) {
-                newToken = userService.generateJwtToken(user.getUsername());
+                newToken = userJwtService.generateJwtToken(userInfo.getAccount());
             }
         }
         if (StringUtils.isNotBlank(newToken)) {
@@ -194,14 +212,58 @@ public class JwtAuthFilter extends AuthenticatingFilter {
      * @return
      */
     protected boolean shouldTokenRefresh(Date issueAt) {
+        //上一次token的生成时间
         LocalDateTime issueTime = LocalDateTime.ofInstant(issueAt.toInstant(), ZoneId.systemDefault());
-        return LocalDateTime.now().minusSeconds(tokenRefreshInterval).isAfter(issueTime);
+        //当前系统时间，减去需要刷新token的配置时间参数，得到一个新的时间
+        LocalDateTime dateTime = LocalDateTime.now().minusSeconds(tokenRefreshInterval);
+        //新的时间如果比生成token的时间要大，那么需要刷新token
+        return dateTime.isAfter(issueTime);
     }
 
     protected void fillCorsHeader(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse) {
         httpServletResponse.setHeader("Access-control-Allow-Origin", httpServletRequest.getHeader("Origin"));
         httpServletResponse.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD");
         httpServletResponse.setHeader("Access-Control-Allow-Headers", httpServletRequest.getHeader("Access-Control-Request-Headers"));
+    }
+
+    /**
+     * 非法url返回身份错误信息
+     */
+    private void responseError(ServletRequest request, ServletResponse response,ResponseCodeEnum responseCodeEnum) {
+        PrintWriter out = null;
+        try {
+            response.setCharacterEncoding("utf-8");
+            out = response.getWriter();
+            response.setContentType("application/json; charset=utf-8");
+            out.print(JSONObject.toJSONString(new ResponseResultUtil<>().errorEnum(responseCodeEnum)));
+            out.flush();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }finally {
+            if (out != null) {
+                out.close();
+            }
+        }
+    }
+
+    /**
+     * 非法url返回身份错误信息
+     */
+    private void responseError(ServletRequest request, ServletResponse response,BusinessException be) {
+        PrintWriter out = null;
+        try {
+            response.setCharacterEncoding("utf-8");
+            out = response.getWriter();
+            response.setContentType("application/json; charset=utf-8");
+            out.print(JSONObject.toJSONString(new ResponseResultUtil<>().error(be.getCode(),be.getMessage())));
+            out.flush();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }finally {
+            if (out != null) {
+                out.close();
+            }
+        }
     }
 
 }

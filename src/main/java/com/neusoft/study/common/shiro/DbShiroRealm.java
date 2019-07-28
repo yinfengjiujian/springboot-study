@@ -1,22 +1,21 @@
 package com.neusoft.study.common.shiro;
 
-import java.util.List;
-
-import com.neusoft.study.entity.user.UserDto;
-import com.neusoft.study.service.user.UserService;
+import com.neusoft.study.common.shiro.utils.JwtUtils;
+import com.neusoft.study.user.entity.UserInfo;
+import com.neusoft.study.user.service.IUserService;
+import com.neusoft.study.user.service.impl.UserServiceImpl;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.shiro.authc.AuthenticationException;
-import org.apache.shiro.authc.AuthenticationInfo;
-import org.apache.shiro.authc.AuthenticationToken;
-import org.apache.shiro.authc.SimpleAuthenticationInfo;
-import org.apache.shiro.authc.UsernamePasswordToken;
-import org.apache.shiro.authc.credential.HashedCredentialsMatcher;
+import org.apache.shiro.authc.*;
 import org.apache.shiro.authz.AuthorizationInfo;
 import org.apache.shiro.authz.SimpleAuthorizationInfo;
-import org.apache.shiro.crypto.hash.Sha256Hash;
+import org.apache.shiro.crypto.hash.Md5Hash;
 import org.apache.shiro.realm.AuthorizingRealm;
 import org.apache.shiro.subject.PrincipalCollection;
 import org.apache.shiro.util.ByteSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+
+import java.util.List;
 
 
 /**
@@ -30,15 +29,12 @@ import org.apache.shiro.util.ByteSource;
 @Slf4j
 public class DbShiroRealm extends AuthorizingRealm {
 
-    //数据库存储的用户密码的加密salt，正式环境不能放在源代码里
-    private static final String encryptSalt = "F12839WhsnnEV$#23b";
 
-    private UserService userService;
+    @Autowired
+    @Qualifier("userServiceImpl")
+    private IUserService userService;
 
-    public DbShiroRealm(UserService userService) {
-        this.userService = userService;
-        //因为数据库中的密码做了散列，所以使用shiro的散列Matcher
-        this.setCredentialsMatcher(new HashedCredentialsMatcher(Sha256Hash.ALGORITHM_NAME));
+    public DbShiroRealm() {
     }
 
     /**
@@ -54,13 +50,11 @@ public class DbShiroRealm extends AuthorizingRealm {
      */
     @Override
     protected AuthenticationInfo doGetAuthenticationInfo(AuthenticationToken token) throws AuthenticationException {
-        UsernamePasswordToken userpasswordToken = (UsernamePasswordToken)token;
-        String username = userpasswordToken.getUsername();
-        UserDto user = userService.getUserInfo(username);
-        if(user == null){
-            throw new AuthenticationException("用户名或者密码错误");
-        }
-        return new SimpleAuthenticationInfo(user, user.getEncryptPwd(), ByteSource.Util.bytes(encryptSalt), "dbRealm");
+        UsernamePasswordToken userpasswordToken = (UsernamePasswordToken) token;
+        String account = userpasswordToken.getUsername();
+        UserInfo userInfo = userService.getUserInfo(account);
+        return new SimpleAuthenticationInfo(userInfo, userInfo.getEncryptPwd(),
+                ByteSource.Util.bytes(userInfo.getPasswrdSalt()), getName());
     }
 
     /**
@@ -71,15 +65,31 @@ public class DbShiroRealm extends AuthorizingRealm {
     @Override
     protected AuthorizationInfo doGetAuthorizationInfo(PrincipalCollection principals) {
         SimpleAuthorizationInfo simpleAuthorizationInfo = new SimpleAuthorizationInfo();
-        UserDto user = (UserDto) principals.getPrimaryPrincipal();
-        List<String> roles = user.getRoles();
+        UserInfo userInfo = (UserInfo) principals.getPrimaryPrincipal();
+        List<String> roles = userInfo.getRoles();
         if(roles == null) {
-            roles = userService.getUserRoles(user.getUserId());
-            user.setRoles(roles);
+            roles = userService.getUserRoles(userInfo.getUserId());
+            userInfo.setRoles(roles);
         }
         if (roles != null){
             simpleAuthorizationInfo.addRoles(roles);
         }
         return simpleAuthorizationInfo;
+    }
+
+
+    /**
+     * 注册的时候，密码必须通过MD5加密并散列三次，存入数据库
+     * @param args
+     */
+    public static void main(String[] args) {
+        //生成盐（部分，需要存入数据库中）
+        String random = JwtUtils.generateSalt();
+        //将原始密码加盐（上面生成的盐），并且用md5算法加密三次，将最后结果存入数据库中
+        String result = new Md5Hash("123456",random,3).toString();
+
+        System.out.println(random);
+
+        System.out.println(result);
     }
 }

@@ -2,11 +2,14 @@ package com.neusoft.study.config;
 
 import com.alibaba.druid.support.http.WebStatFilter;
 import com.neusoft.study.common.shiro.DbShiroRealm;
+import com.neusoft.study.common.shiro.JWTCredentialsMatcher;
 import com.neusoft.study.common.shiro.JWTShiroRealm;
 import com.neusoft.study.common.shiro.filters.AnyRolesAuthorizationFilter;
 import com.neusoft.study.common.shiro.filters.JwtAuthFilter;
-import com.neusoft.study.service.user.UserService;
+import com.neusoft.study.user.service.impl.UserJwtServiceImpl;
+import com.neusoft.study.user.service.impl.UserServiceImpl;
 import org.apache.shiro.authc.Authenticator;
+import org.apache.shiro.authc.credential.HashedCredentialsMatcher;
 import org.apache.shiro.authc.pam.FirstSuccessfulStrategy;
 import org.apache.shiro.authc.pam.ModularRealmAuthenticator;
 import org.apache.shiro.mgt.SecurityManager;
@@ -25,7 +28,6 @@ import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
 import java.util.Arrays;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * <p>Title: com.neusoft.study.config</p>
@@ -38,16 +40,15 @@ import java.util.concurrent.ConcurrentHashMap;
 @Configuration
 public class ShiroConfig {
 
-
     /**
      * 注册shiro的Filter，拦截请求
      */
     @Bean
     @ConditionalOnMissingBean
-    public FilterRegistrationBean<Filter> filterRegistrationBean(SecurityManager securityManager,UserService userService) throws Exception{
+    public FilterRegistrationBean<Filter> filterRegistrationBean(SecurityManager securityManager, UserJwtServiceImpl userJwtService) throws Exception{
         FilterRegistrationBean<Filter> filterRegistration = new FilterRegistrationBean<Filter>();
 
-        filterRegistration.setFilter((Filter)shiroFilter(securityManager, userService).getObject());
+        filterRegistration.setFilter((Filter)shiroFilter(securityManager,userJwtService).getObject());
         filterRegistration.addInitParameter("targetFilterLifecycle", "true");
         filterRegistration.setAsyncSupported(true);
         filterRegistration.setEnabled(true);
@@ -66,10 +67,11 @@ public class ShiroConfig {
      * 初始化Authenticator
      */
     @Bean
-    public Authenticator authenticator(UserService userService) {
+    @ConditionalOnMissingBean
+    public Authenticator authenticator() {
         ModularRealmAuthenticator authenticator = new ModularRealmAuthenticator();
         //设置两个Realm，一个用于用户登录验证和访问权限获取；一个用于jwt token的认证
-        authenticator.setRealms(Arrays.asList(jwtShiroRealm(userService), dbShiroRealm(userService)));
+        authenticator.setRealms(Arrays.asList(jwtShiroRealm(), dbShiroRealm()));
         //设置多个realm认证策略，一个成功即跳过其它的
         authenticator.setAuthenticationStrategy(new FirstSuccessfulStrategy());
         return authenticator;
@@ -88,11 +90,25 @@ public class ShiroConfig {
     }
 
     /**
+     * 设置shiro登录验证时候采用的加密方式，和散列的次数
+     * @return
+     */
+    @Bean
+    public HashedCredentialsMatcher hashedCredentialsMatcher(){
+        HashedCredentialsMatcher hashedCredentialsMatcher = new HashedCredentialsMatcher();
+        hashedCredentialsMatcher.setHashAlgorithmName("md5");//散列算法:这里使用MD5算法;
+        hashedCredentialsMatcher.setHashIterations(3);//散列的次数，比如散列两次，相当于 md5(md5(""));
+        return hashedCredentialsMatcher;
+    }
+
+    /**
      * 用于用户名密码登录时认证的realm
      */
     @Bean("dbRealm")
-    public Realm dbShiroRealm(UserService userService) {
-        DbShiroRealm myShiroRealm = new DbShiroRealm(userService);
+    public Realm dbShiroRealm() {
+        DbShiroRealm myShiroRealm = new DbShiroRealm();
+        //认证的时候密码散列几次，采用什么加密等
+        myShiroRealm.setCredentialsMatcher(hashedCredentialsMatcher());
         return myShiroRealm;
     }
 
@@ -100,8 +116,10 @@ public class ShiroConfig {
      * 用于JWT token认证的realm
      */
     @Bean("jwtRealm")
-    public Realm jwtShiroRealm(UserService userService) {
-        JWTShiroRealm myShiroRealm = new JWTShiroRealm(userService);
+    public Realm jwtShiroRealm() {
+        JWTShiroRealm myShiroRealm = new JWTShiroRealm();
+        //这里使用我们自定义的Matcher
+        myShiroRealm.setCredentialsMatcher(new JWTCredentialsMatcher());
         return myShiroRealm;
     }
 
@@ -109,11 +127,11 @@ public class ShiroConfig {
      * 设置过滤器，将自定义的Filter加入
      */
     @Bean("shiroFilter")
-    public ShiroFilterFactoryBean shiroFilter(SecurityManager securityManager, UserService userService) {
+    public ShiroFilterFactoryBean shiroFilter(SecurityManager securityManager,UserJwtServiceImpl userJwtService) {
         ShiroFilterFactoryBean factoryBean = new ShiroFilterFactoryBean();
         factoryBean.setSecurityManager(securityManager);
         Map<String, Filter> filterMap = factoryBean.getFilters();
-        filterMap.put("authcToken", createAuthFilter(userService));
+        filterMap.put("authcToken", createAuthFilter(userJwtService));
         filterMap.put("anyRole", createRolesFilter());
         factoryBean.setFilters(filterMap);
         factoryBean.setFilterChainDefinitionMap(shiroFilterChainDefinition().getFilterChainMap());
@@ -142,8 +160,8 @@ public class ShiroConfig {
     }
 
     //注意不要加@Bean注解，不然spring会自动注册成filter
-    protected JwtAuthFilter createAuthFilter(UserService userService){
-        return new JwtAuthFilter(userService);
+    protected JwtAuthFilter createAuthFilter(UserJwtServiceImpl userJwtService){
+        return new JwtAuthFilter(userJwtService);
     }
 
     //注意不要加@Bean注解，不然spring会自动注册成filter

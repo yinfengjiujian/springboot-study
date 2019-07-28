@@ -1,12 +1,11 @@
 package com.neusoft.study.common.shiro;
 
-import com.neusoft.study.entity.user.UserDto;
-import lombok.extern.slf4j.Slf4j;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.JWTVerifier;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTVerificationException;
-
+import com.neusoft.study.user.entity.UserInfo;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.shiro.authc.AuthenticationInfo;
 import org.apache.shiro.authc.AuthenticationToken;
 import org.apache.shiro.authc.credential.CredentialsMatcher;
@@ -33,11 +32,11 @@ public class JWTCredentialsMatcher implements CredentialsMatcher {
         Object stored = authenticationInfo.getCredentials();
         String salt = stored.toString();
 
-        UserDto user = (UserDto) authenticationInfo.getPrincipals().getPrimaryPrincipal();
+        UserInfo userInfo = (UserInfo) authenticationInfo.getPrincipals().getPrimaryPrincipal();
         try {
             Algorithm algorithm = Algorithm.HMAC256(salt);
             JWTVerifier verifier = JWT.require(algorithm)
-                    .withClaim("username", user.getUsername())
+                    .withClaim("username", userInfo.getAccount())
                     .build();
             verifier.verify(token);
             return true;

@@ -1,14 +1,21 @@
 package com.neusoft.study.common.shiro;
 
+import com.neusoft.study.common.exception.BusinessException;
+import com.neusoft.study.common.response.ResponseCodeEnum;
 import com.neusoft.study.common.shiro.utils.JwtUtils;
-import com.neusoft.study.entity.user.UserDto;
-import com.neusoft.study.service.user.UserService;
+import com.neusoft.study.user.entity.UserInfo;
+import com.neusoft.study.user.service.impl.UserJwtServiceImpl;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.shiro.authc.*;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.shiro.authc.AuthenticationException;
+import org.apache.shiro.authc.AuthenticationInfo;
+import org.apache.shiro.authc.AuthenticationToken;
+import org.apache.shiro.authc.SimpleAuthenticationInfo;
 import org.apache.shiro.authz.AuthorizationInfo;
 import org.apache.shiro.authz.SimpleAuthorizationInfo;
 import org.apache.shiro.realm.AuthorizingRealm;
 import org.apache.shiro.subject.PrincipalCollection;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * <p>Title: com.neusoft.study.common.shiro</p>
@@ -21,12 +28,10 @@ import org.apache.shiro.subject.PrincipalCollection;
 @Slf4j
 public class JWTShiroRealm extends AuthorizingRealm {
 
-    protected UserService userService;
+    @Autowired
+    private UserJwtServiceImpl userService;
 
-    public JWTShiroRealm(UserService userService){
-        this.userService = userService;
-        //这里使用我们自定义的Matcher
-        this.setCredentialsMatcher(new JWTCredentialsMatcher());
+    public JWTShiroRealm(){
     }
 
     /**
@@ -49,12 +54,8 @@ public class JWTShiroRealm extends AuthorizingRealm {
         JWTToken jwtToken = (JWTToken) authcToken;
         String token = jwtToken.getToken();
 
-        UserDto user = userService.getJwtTokenInfo(JwtUtils.getUsername(token));
-        if(user == null){
-            throw new AuthenticationException("token过期，请重新登录");
-        }
-
-        SimpleAuthenticationInfo authenticationInfo = new SimpleAuthenticationInfo(user, user.getSalt(), "jwtRealm");
+        UserInfo userInfo = userService.getJwtTokenInfo(JwtUtils.getUsername(token));
+        SimpleAuthenticationInfo authenticationInfo = new SimpleAuthenticationInfo(userInfo, userInfo.getTokenSalt(), "jwtRealm");
 
         return authenticationInfo;
     }

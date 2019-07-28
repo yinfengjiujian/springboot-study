@@ -44,11 +44,15 @@ public class SimpleTest {
 
     @Test
     public void selectJoin(){
-        UserCondition userCondition = new UserCondition();
-//        userCondition.setName("燕子");
-//        userCondition.setUserid("11476723287300587");
-        List<UserAndExtend> persionBase = userMapper.getPersionBase(userCondition);
-        System.out.println(persionBase);
+//        UserCondition userCondition = new UserCondition();
+////        userCondition.setName("燕子");
+////        userCondition.setUserid("11476723287300587");
+//        List<UserAndExtend> persionBase = userMapper.getPersionBase(userCondition);
+//        System.out.println(persionBase);
+
+        QueryWrapper<User> queryWrapper = new QueryWrapper<User>();
+        queryWrapper.eq("account","yinhai");
+        User user = userMapper.selectOne(queryWrapper);
     }
 
     /**
@@ -163,4 +167,6 @@ public class SimpleTest {
         userList.forEach(System.out::println);
 
     }
+
+
 }

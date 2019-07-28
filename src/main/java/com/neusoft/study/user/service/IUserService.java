@@ -2,6 +2,9 @@ package com.neusoft.study.user.service;
 
 import com.neusoft.study.user.entity.User;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.neusoft.study.user.entity.UserInfo;
+
+import java.util.List;
 
 /**
  * <p>
@@ -13,4 +16,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
  */
 public interface IUserService extends IService<User> {
 
+    UserInfo getUserInfo(String account);
+
+    List<String> getUserRoles(Long userId);
 }
